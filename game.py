@@ -2,7 +2,7 @@
 """
 RPSLS Game - Adaptive AI opponent using real-time gesture recognition.
 UI based purely on OpenCV (no Pygame).
-AI learns from your moves using a transition matrix.
+AI learns from your moves across multiple play sessions.
 """
 
 import cv2
@@ -17,20 +17,22 @@ from hand_detector import HandDetector
 from gesture_classifier import GestureClassifier
 
 # -------------------------------
-# Adaptive AI using transition matrix
+# Adaptive AI with persistent memory
 # -------------------------------
 class AdaptiveAI:
     """
-    Learns player's move patterns online.
+    Learns player's move patterns online across sessions.
     Maintains a transition matrix P(next_move | current_move) and chooses
     the move that most likely beats the next predicted move.
     """
-    def __init__(self, n_gestures=5):
+    def __init__(self, n_gestures=5, memory_file="data/ai_memory.npz"):
         self.n = n_gestures
+        self.memory_file = memory_file
         # transition counts: from -> to
         self.transitions = np.zeros((n_gestures, n_gestures), dtype=int)
         self.last_move = None
         self.total_rounds = 0
+        self.load_memory()   # load previous knowledge if exists
 
     def update(self, player_move_idx):
         """Call after each round with the player's move."""
@@ -38,6 +40,9 @@ class AdaptiveAI:
             self.transitions[self.last_move, player_move_idx] += 1
         self.last_move = player_move_idx
         self.total_rounds += 1
+        # optional: auto-save every 10 rounds
+        if self.total_rounds % 10 == 0:
+            self.save_memory()
 
     def predict_next(self):
         """Predict player's next move based on last move (maximum likelihood)."""
@@ -60,11 +65,38 @@ class AdaptiveAI:
         # pred is the player's most likely next gesture
         # we need a gesture that beats pred
         player_gesture = Gesture(pred)
-        # find a gesture that beats player_gesture
         winning_moves = [g.value for g in WINS[player_gesture]]
         if not winning_moves:
             return np.random.randint(self.n)
         return np.random.choice(winning_moves)
+
+    def save_memory(self):
+        """Save transition matrix and last move to disk."""
+        data = {
+            'transitions': self.transitions,
+            'last_move': self.last_move,
+            'total_rounds': self.total_rounds
+        }
+        np.savez(self.memory_file, **data)
+        print(f"AI memory saved to {self.memory_file} (total rounds: {self.total_rounds})")
+
+    def load_memory(self):
+        """Load previously learned transitions if file exists."""
+        if os.path.exists(self.memory_file):
+            try:
+                data = np.load(self.memory_file, allow_pickle=True)
+                self.transitions = data['transitions']
+                self.last_move = int(data['last_move']) if data['last_move'] is not None else None
+                self.total_rounds = int(data['total_rounds'])
+                print(f"AI memory loaded from {self.memory_file}")
+                print(f"  Previous rounds learned: {self.total_rounds}")
+                # Optional: show most frequent patterns
+                if self.total_rounds > 0:
+                    print("  AI is ready to counter your habits!")
+            except Exception as e:
+                print(f"Warning: could not load AI memory: {e}")
+        else:
+            print("No previous AI memory found. Starting fresh.")
 
 # -------------------------------
 # UI and game loop (OpenCV)
@@ -83,7 +115,7 @@ class Game:
         self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
         
         # Game state
-        self.ai = AdaptiveAI()
+        self.ai = AdaptiveAI()   # will load memory automatically
         self.player_score = 0
         self.ai_score = 0
         self.draws = 0
@@ -112,6 +144,7 @@ class Game:
     
     def run(self):
         print("🎮 Game started. Press SPACE to start a round. Press ESC to quit.")
+        print("AI learns from every round and remembers across sessions!")
         
         while True:
             ret, frame = self.cap.read()
@@ -153,6 +186,11 @@ class Game:
                 cv2.putText(frame, "No gesture", (20, h-20),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.8, (128, 128, 128), 1)
             
+            # AI confidence indicator (optional)
+            if self.ai.total_rounds >= 2:
+                cv2.putText(frame, f"AI memory: {self.ai.total_rounds} rounds", (w-250, h-20),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 1)
+            
             # Recent moves history
             y_hist = 100
             cv2.putText(frame, "Recent rounds:", (w-200, y_hist),
@@ -170,16 +208,20 @@ class Game:
             
             if key == ord(' ') and not self.current_round_active and time.time() > self.result_display_end:
                 # Start countdown only if not already in round and result displayed
+                if gesture is None or confidence < 0.6:
+                    # Show warning message
+                    cv2.rectangle(frame, (w//2-250, h//2-30), (w//2+250, h//2+30), (0,0,0), -1)
+                    cv2.putText(frame, "Show a clear gesture first!", (w//2-230, h//2+10),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0,0,255), 2)
+                    cv2.waitKey(500)
+                    continue
+                
                 self.current_round_active = True
                 self.countdown_start = time.time()
-                self.player_gesture = gesture  # store the current gesture
-                if self.player_gesture is None:
-                    self.current_round_active = False
-                    continue
+                self.player_gesture = gesture
                 # AI chooses move based on learned pattern
                 ai_choice_idx = self.ai.choose_move()
                 self.ai_gesture = Gesture(ai_choice_idx)
-                # Countdown duration 2 seconds
                 
             if self.current_round_active:
                 elapsed = time.time() - self.countdown_start
@@ -193,7 +235,7 @@ class Game:
                     # Round result
                     result_str = self.determine_winner(self.player_gesture, self.ai_gesture)
                     self.update_scores(result_str)
-                    # Record for AI learning
+                    # Record for AI learning (will also auto-save periodically)
                     self.ai.update(self.player_gesture.value)
                     # Store history
                     p_name = GESTURE_NAMES[self.player_gesture][:3]
@@ -230,9 +272,15 @@ class Game:
             
             cv2.imshow("Mind Games - RPSLS", frame)
         
-        self.cap.release()
-        cv2.destroyAllWindows()
-        print("Game over. Final score: You {} - {} AI".format(self.player_score, self.ai_score))
+        
+        if cv2.waitKey(1) & 0xFF == 27:
+            
+            # Save AI memory before quitting
+            self.ai.save_memory()
+            self.cap.release()
+            cv2.destroyAllWindows()
+            print("\n👋 Game over. Final score: You {} - {} AI".format(self.player_score, self.ai_score))
+            print("AI memory saved. Next time it will be even smarter!")
 
 if __name__ == "__main__":
     game = Game()
