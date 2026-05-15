@@ -1,6 +1,6 @@
 """
 Data collection and training script
-Collect hand gesture samples and train both LightGBM and LSTM models
+Collect hand gesture samples and train LightGBM model
 """
 
 import cv2
@@ -16,7 +16,6 @@ from config import (
 
 from hand_detector import HandDetector
 from gesture_classifier import GestureClassifier, DataAugmentor
-from sequence_predictor import SequencePredictor, SyntheticDataGenerator
 
 
 class DataCollector:
@@ -82,7 +81,7 @@ class DataCollector:
                        (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 200, 255), 2)
             
             # Instructions
-            cv2.putText(frame, "SPACE: Cattura | N: Prossimo",
+            cv2.putText(frame, "SPACE: Cattura | N: Prossimo | Q: Esci",
                        (10, h - 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (200, 200, 200), 1)
             
             cv2.imshow(f"Collecting {gesture_emoji} {gesture_name}", frame)
@@ -205,7 +204,7 @@ def train_classifier(data_path: str):
         if len(gesture_samples) > 0:
             # Augment each sample
             for sample in gesture_samples:
-                aug = augmentor.augment_sample(sample, num_augmentations=2)
+                aug = augmentor.augment_sample(sample, num_augmentations=5)
                 X_augmented.append(aug)
                 y_augmented.append(np.full(len(aug), gesture.value))
     
@@ -226,46 +225,14 @@ def train_classifier(data_path: str):
     return classifier
 
 
-def train_lstm(gesture_sequence_length: int = 100, num_sequences: int = 20):
-    """
-    Train LSTM sequence predictor
-    
-    Args:
-        gesture_sequence_length: Length of each synthetic sequence
-        num_sequences: Number of synthetic sequences to generate
-    """
-    print("\n🔮 === TRAINING LSTM SEQUENCE PREDICTOR ===\n")
-    
-    # Generate synthetic training data
-    print(f"Generating {num_sequences} synthetic gesture sequences...")
-    generator = SyntheticDataGenerator()
-    sequences = generator.generate_patterns(
-        num_sequences=num_sequences,
-        seq_length=gesture_sequence_length
-    )
-    
-    # Train LSTM
-    predictor = SequencePredictor()
-    print("\nTraining LSTM...")
-    history = predictor.train(sequences, verbose=True)
-    
-    # Save model
-    predictor.save()
-    
-    print(f"\n✓ LSTM training complete")
-    return predictor
-
-
 def main():
-    parser = argparse.ArgumentParser(description="Train Mind Games models")
+    parser = argparse.ArgumentParser(description="Train Mind Games gesture classifier")
     parser.add_argument('--collect', action='store_true',
                        help='Collect training data')
     parser.add_argument('--train-classifier', action='store_true',
                        help='Train gesture classifier')
-    parser.add_argument('--train-lstm', action='store_true',
-                       help='Train LSTM predictor')
     parser.add_argument('--train-all', action='store_true',
-                       help='Collect data and train all models')
+                       help='Collect data and train classifier')
     parser.add_argument('--samples-per-gesture', type=int, default=100,
                        help='Samples per gesture (default: 100)')
     parser.add_argument('--data-file', type=str, default='training_data.npz',
@@ -294,12 +261,8 @@ def main():
         else:
             print(f"✗ Data file not found: {data_file}")
     
-    # Train LSTM
-    if args.train_lstm or args.train_all:
-        train_lstm()
-    
-    print("\n✓ All training complete!")
-    print("You can now run: python game_ui.py\n")
+    print("\n✓ Training complete!")
+    print("You can now run: python game.py\n")
 
 
 if __name__ == '__main__':

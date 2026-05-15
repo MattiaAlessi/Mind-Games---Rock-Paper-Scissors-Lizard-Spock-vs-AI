@@ -17,7 +17,6 @@ AUDIO_DIR = os.path.join(PROJECT_ROOT, 'audio')
 # Model files
 GESTURE_MODEL_PATH = os.path.join(MODELS_DIR, 'gesture_classifier.pkl')
 GESTURE_SCALER_PATH = os.path.join(MODELS_DIR, 'gesture_scaler.pkl')
-LSTM_PREDICTOR_PATH = os.path.join(MODELS_DIR, 'sequence_predictor.h5')
 
 # Audio files
 SOUND_COUNTDOWN = os.path.join(AUDIO_DIR, 'countdown.wav')
@@ -26,7 +25,7 @@ SOUND_LOSE = os.path.join(AUDIO_DIR, 'lose.wav')
 SOUND_DRAW = os.path.join(AUDIO_DIR, 'draw.wav')
 
 # Create directories if missing
-for d in [DATA_DIR, MODELS_DIR, AUDIO_DIR]:
+for d in [DATA_DIR, MODELS_DIR]:
     os.makedirs(d, exist_ok=True)
 
 # ============================================================================
@@ -108,19 +107,7 @@ LGBM_PARAMS = {
 LGBM_CV_FOLDS = 5
 LGBM_MIN_SAMPLES_PER_CLASS = 50
 
-# ============================================================================
-# LSTM SEQUENCE PREDICTOR
-# ============================================================================
-LSTM_SEQUENCE_LENGTH = 10  # Context window
-LSTM_BATCH_SIZE = 32
-LSTM_EPOCHS = 50
-LSTM_VALIDATION_SPLIT = 0.2
 
-LSTM_LAYERS = {
-    'lstm_units': 64,
-    'dropout_rate': 0.3,
-    'dense_units': 32
-}
 
 # ============================================================================
 # WEBCAM & VIDEO PROCESSING
@@ -128,7 +115,6 @@ LSTM_LAYERS = {
 WEBCAM_WIDTH = 1280
 WEBCAM_HEIGHT = 720
 WEBCAM_FPS = 30
-PROCESS_EVERY_N_FRAMES = 2  # Process every 2nd frame for performance
 
 # ============================================================================
 # PYGAME INTERFACE

@@ -184,6 +184,10 @@ class Game:
         self.round_result = None
         self.result_display_end = 0
 
+        # Frozen gesture during countdown (improvement #9)
+        self.frozen_gesture = None
+        self.frozen_confidence = 0.0
+
     def determine_winner(self, player, ai):
         if player == ai:
             return "draw"
@@ -214,14 +218,18 @@ class Game:
 
             # Hand detection and skeleton
             _, landmarks, hand_detected = self.hand_detector.detect(frame)
+            # Use smoothed landmarks if available (improvement #10)
+            smoothed_landmarks = self.hand_detector.get_smoothed_landmarks()
+            landmarks_to_use = smoothed_landmarks if smoothed_landmarks is not None else landmarks
+
             gesture = None
             confidence = 0.0
-            if hand_detected and landmarks:
-                features = self.hand_detector.landmarks_to_features(landmarks)
+            if hand_detected and landmarks_to_use:
+                features = self.hand_detector.landmarks_to_features(landmarks_to_use)
                 if features is not None:
                     gesture, confidence = self.classifier.predict(features)
-                # draw skeleton
-                frame = self.hand_detector.draw_skeleton(frame, landmarks, (0, 255, 0), 2)
+                # draw skeleton using smoothed landmarks
+                frame = self.hand_detector.draw_skeleton(frame, landmarks_to_use, (0, 255, 0), 2)
 
             # ---------- UI overlays ----------
             # top bar
@@ -235,13 +243,13 @@ class Game:
             cv2.putText(frame, "SPACE: play | ESC: quit", (w-300, 40),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200, 200, 200), 1)
 
-            # current gesture feedback
-            if gesture and confidence > 0.6:
+            # current gesture feedback (only if round not active, otherwise show frozen)
+            if not self.current_round_active and gesture and confidence > 0.6:
                 emoji = GESTURE_EMOJIS[gesture]
                 name = GESTURE_NAMES[gesture]
                 cv2.putText(frame, f"{emoji} {name} ({confidence:.0%})", (20, h-20),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 0), 2)
-            else:
+            elif not self.current_round_active:
                 cv2.putText(frame, "No gesture", (20, h-20),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.8, (128, 128, 128), 1)
 
@@ -275,20 +283,36 @@ class Game:
                     cv2.waitKey(500)
                     continue
 
+                # Freeze the gesture shown at this moment (improvement #9)
+                self.frozen_gesture = gesture
+                self.frozen_confidence = confidence
+
                 # start a new round
                 self.current_round_active = True
                 self.countdown_start = time.time()
-                self.player_gesture = gesture
+                self.player_gesture = self.frozen_gesture   # use frozen gesture
                 self.ai_gesture = Gesture(self.ai.choose_move())
 
             if self.current_round_active:
                 elapsed = time.time() - self.countdown_start
-                if elapsed < 2:   # countdown for 2 seconds (3,2,1)
-                    countdown = int(3 - elapsed)
-                    if countdown > 0:
-                        cv2.rectangle(frame, (w//2-60, h//2-60), (w//2+60, h//2+60), (0, 0, 0), -1)
-                        cv2.putText(frame, str(countdown), (w//2-30, h//2+30),
-                                    cv2.FONT_HERSHEY_SIMPLEX, 3, (0, 255, 255), 4)
+                if elapsed < 2.0:   # countdown for 2 seconds
+                    # Calculate remaining number (3,2,1)
+                    remaining = int(3 - elapsed * 1.5)
+                    remaining = max(1, min(3, remaining))
+
+                    # Animated circular arc
+                    angle = int(360 * (elapsed / 2.0))
+                    center = (w//2, h//2)
+                    radius = 80
+                    cv2.ellipse(frame, center, (radius, radius), 0, 0, angle, (0, 255, 255), 10)
+
+                    # Countdown number in center
+                    cv2.putText(frame, str(remaining), (center[0]-30, center[1]+30),
+                                cv2.FONT_HERSHEY_SIMPLEX, 3, (0, 255, 255), 4)
+
+                    # Show frozen gesture above the countdown (optional)
+                    cv2.putText(frame, f"{GESTURE_EMOJIS[self.frozen_gesture]} {GESTURE_NAMES[self.frozen_gesture]}",
+                                (center[0]-100, center[1]-50), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
                 else:
                     # round finished
                     result = self.determine_winner(self.player_gesture, self.ai_gesture)

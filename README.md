@@ -4,16 +4,14 @@ Un sistema interattivo che combina **Computer Vision**, **Machine Learning** e *
 
 ## 📋 Requisiti
 
-- **Python 3.9+**
+- **Versione di Python utilizzata per i test:  3.11.x**
 - **Webcam** (per acquisizione video real-time)
-- **CUDA** (opzionale, per accelerare TensorFlow/LightGBM)
 
 ## 🚀 Setup
 
 ### 1. Clona il repository
 ```bash
-git clone <repo-url>
-cd mind_games
+git clone https://github.com/MattiaAlessi/Mind-Games---Rock-Paper-Scissors-Lizard-Spock-vs-AI
 ```
 
 ### 2. Crea un ambiente virtuale
@@ -31,17 +29,15 @@ pip install -r requirements.txt
 
 ```
 mind_games/
-├── config.py                 # Configurazione centralizzata
-├── hand_detector.py          # MediaPipe hand tracking
-├── gesture_classifier.py     # LightGBM classifier
-├── sequence_predictor.py     # LSTM sequence prediction
-├── game_engine.py            # Game logic (RPSLS rules)
-├── game_ui.py                # Pygame interface
-├── train.py                  # Data collection & training
-└── models/                   # Pre-trained models (creato automaticamente)
-    ├── gesture_classifier.pkl
-    ├── gesture_scaler.pkl
-    └── sequence_predictor.h5
+├── config.py # Configurazione centralizzata
+├── hand_detector.py # MediaPipe hand tracking
+├── gesture_classifier.py # LightGBM classifier
+├── game.py # Game logic + UI OpenCV
+├── train.py # Data collection & training
+├── self_play.py # Addestramento AI contro se stessa
+└── models/ # Modelli salvati
+├── gesture_classifier.pkl
+└── gesture_scaler.pkl
 ```
 
 ## 🎮 Workflow
@@ -61,9 +57,7 @@ Questo comando:
 
 3. **Allena LightGBM** con cross-validation
    - Accuratezza tipica: >95%
-   
-4. **Allena LSTM** su sequenze sintetiche
-   - Predice il prossimo gesto del giocatore
+
 
 **Comandi alternativi:**
 ```bash
@@ -75,31 +69,15 @@ python train.py --train-lstm                              # Solo LSTM
 ### Fase 2: Giocare
 
 ```bash
-python game_ui.py
+python game.py
 ```
-
-**Interfaccia di gioco:**
-- **Sinistra (60%)**: Feed webcam con scheletro della mano
-- **Destra (40%)**: Statistiche, punteggio, cronologia mosse
 
 **Controlli:**
 - Mostra un gesto davanti alla webcam
-- L'IA automaticamente rileva e risponde
-- Countdown 3-2-1... SHOOT!
-- **R**: Reset gioco
-- **Q**: Esci
+- **SPAZIO**: inizia il gioco
+- Countdown 3-2-1... !
+- **ESC**: Esci
 
-## 🔧 Configurazione
-
-Modifica `config.py` per personalizzare:
-
-| Parametro | Descrizione | Default |
-|-----------|-------------|---------|
-| `MP_HANDS_MIN_CONFIDENCE` | Confidenza detection mano | 0.7 |
-| `LGBM_N_ESTIMATORS` | Alberi LightGBM | 300 |
-| `LSTM_SEQUENCE_LENGTH` | Finestra temporale LSTM | 10 |
-| `COUNTDOWN_DURATION` | Secondi countdown | 3 |
-| `GESTURE_MODEL_PATH` | Path classifier | `models/gesture_classifier.pkl` |
 
 ## 📊 Componenti Principali
 
@@ -108,58 +86,26 @@ Modifica `config.py` per personalizzare:
 - Estrae features normalizzate (63 valori)
 - Smooth temporale per ridurre tremori
 
-```python
-detector = HandDetector()
-_, landmarks, detected = detector.detect(frame)
-features = detector.landmarks_to_features(landmarks)
-```
-
 ### GestureClassifier (LightGBM)
 - Classifica gesti statici: Rock, Paper, Scissors, Lizard, Spock
 - Data augmentation integrata
 - Accuratezza validazione tramite cross-fold
-
-```python
-classifier = GestureClassifier()
-classifier.train(X, y)  # Train
-gesture, confidence = classifier.predict(features)
-classifier.save()
-```
 
 ### SequencePredictor (LSTM)
 - Analizza sequenza ultime N mosse
 - Predice probabilità prossima mossa
 - Alimenta strategia IA "contromossa"
 
-```python
-predictor = SequencePredictor()
-predictor.train(gesture_sequences)
-proba, predicted_gesture = predictor.predict_next_move()
-predictor.record_move(gesture)
-```
-
-### AIOpponent
-- Sceglie mossa che batte previsione LSTM
-- Strategie: 'counter', 'random', 'balanced'
-
-```python
-ai = AIOpponent(predictor)
-ai.set_strategy('counter')
-ai_move = ai.choose_move(use_prediction=True)
-```
-
-### GameEngine (RPSLS Logic)
-- Implementa regole Rock-Paper-Scissors-Lizard-Spock
-- Traccia cronologia e statistiche
-- Spiega chi vince e perché
-
-```python
-engine = GameEngine()
-result = engine.play_round(player_gesture, ai_gesture)
-stats = engine.get_stats()
-```
+### AdaptiveAI (Markov chain ordine 2)
+- Memorizza sequenze delle tue ultime mosse
+- Sliding window (dimentica le abitudini vecchie)
+- Laplace smoothing + esplorazione ε‑greedy
+- Memoria persistente su disco (data/ai_memory.npz)
 
 ## 🎯 Regole RPSLS
+L = Loss
+W = Win
+'=' = pareggio
 
 | vs | Sasso | Carta | Forbice | Lizard | Spock |
 |----|-------|-------|---------|--------|-------|
@@ -169,20 +115,6 @@ stats = engine.get_stats()
 | **Lizard** | L | W | L | = | W |
 | **Spock** | W | L | W | L | = |
 
-## 📈 Metriche di Performance
-
-Dopo training, controlla:
-
-```python
-from gesture_classifier import GestureClassifier
-
-clf = GestureClassifier()
-clf.load()
-
-# Feature importance
-importances = clf.get_feature_importance(top_n=15)
-for idx, imp in importances:
-    print(f"Feature {idx}: {imp:.4f}")
 ```
 
 ## 🐛 Troubleshooting
@@ -191,9 +123,8 @@ for idx, imp in importances:
 |----------|-----------|
 | **Webcam non viene riconosciuta** | Controlla permessi, prova `cv2.VideoCapture(1)` |
 | **Bassa accuratezza gesture** | Raccogli più campioni (300+), migliora illuminazione |
-| **LSTM non predice bene** | Aumenta `LSTM_SEQUENCE_LENGTH`, genera più sequenze sintetiche |
 | **Scheletro mano sfarfalla** | Aumenta `SMOOTHING_WINDOW` in config |
-| **Gioco rallentato** | Riduci `SCREEN_FPS` o processa ogni N frame |
+| **Gioco rallentato** | Riduci risoluzione webcam |
 
 ## 📝 Struttura Training Data
 
@@ -206,16 +137,11 @@ Formato compresso NumPy per efficienza.
 ## 🔐 Modelli Salvi
 
 **gesture_classifier.pkl** (LightGBM)
-- Dimensione: ~1-2 MB
 - Caricabile con joblib
 
 **gesture_scaler.pkl** (StandardScaler)
 - Normalizzazione feature
 - Essenziale per inference
-
-**sequence_predictor.h5** (Keras/TensorFlow)
-- Dimensione: ~2-5 MB
-- Formato HDF5
 
 ## 🎨 Personalizzazioni
 
