@@ -317,11 +317,6 @@ class Game:
                 cv2.putText(frame, f"{p} vs {a}", (x_hist, y_start + 25 + i*25),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
 
-            # Prediction histogram (2.3) - during countdown only to avoid clutter
-            if self.current_round_active:
-                probs = self.ai.get_prediction_probabilities()
-                if probs is not None:
-                    self.draw_prediction_histogram(frame, probs, w-220, 250, 180, 80)
 
             # ---------- Game round logic ----------
             key = cv2.waitKey(1) & 0xFF
