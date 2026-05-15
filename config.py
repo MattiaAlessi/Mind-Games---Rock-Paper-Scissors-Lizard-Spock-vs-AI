@@ -13,6 +13,7 @@ PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(PROJECT_ROOT, 'data')
 MODELS_DIR = os.path.join(PROJECT_ROOT, 'models')
 AUDIO_DIR = os.path.join(PROJECT_ROOT, 'audio')
+LOGS_DIR = os.path.join(PROJECT_ROOT, 'logs')
 
 # Model files
 GESTURE_MODEL_PATH = os.path.join(MODELS_DIR, 'gesture_classifier.pkl')
@@ -25,7 +26,7 @@ SOUND_LOSE = os.path.join(AUDIO_DIR, 'lose.wav')
 SOUND_DRAW = os.path.join(AUDIO_DIR, 'draw.wav')
 
 # Create directories if missing
-for d in [DATA_DIR, MODELS_DIR]:
+for d in [DATA_DIR, MODELS_DIR, LOGS_DIR]:
     os.makedirs(d, exist_ok=True)
 
 # ============================================================================
@@ -91,23 +92,34 @@ HAND_CONNECTIONS = [
 SMOOTHING_WINDOW = 5  # deque size for temporal smoothing
 
 # ============================================================================
-# LIGHTGBM CLASSIFIER
+# CLASSIFIER SETTINGS (XGBoost)
 # ============================================================================
-LGBM_PARAMS = {
+CLASSIFIER_TYPE = 'xgboost'  # 'lightgbm' or 'xgboost'
+
+XGB_PARAMS = {
+    'n_estimators': 200,
+    'max_depth': 8,
+    'learning_rate': 0.05,
+    'subsample': 0.8,
+    'colsample_bytree': 0.8,
+    'random_state': 42,
+    'verbosity': 0,
+    'n_jobs': -1
+}
+
+LGBM_PARAMS = {  # kept for backward compatibility
     'num_leaves': 31,
     'max_depth': 8,
     'learning_rate': 0.05,
     'n_estimators': 300,
     'random_state': 42,
     'verbose': -1,
-    'reg_alpha': 0.1,  # L1 regularization
-    'reg_lambda': 0.1   # L2 regularization
+    'reg_alpha': 0.1,
+    'reg_lambda': 0.1
 }
 
-LGBM_CV_FOLDS = 5
-LGBM_MIN_SAMPLES_PER_CLASS = 50
-
-
+CV_FOLDS = 5
+MIN_SAMPLES_PER_CLASS = 50
 
 # ============================================================================
 # WEBCAM & VIDEO PROCESSING
@@ -117,7 +129,7 @@ WEBCAM_HEIGHT = 720
 WEBCAM_FPS = 30
 
 # ============================================================================
-# PYGAME INTERFACE
+# PYGAME INTERFACE (used for UI metrics only)
 # ============================================================================
 SCREEN_WIDTH = 1920
 SCREEN_HEIGHT = 1080
@@ -148,6 +160,10 @@ COUNTDOWN_DURATION = 3  # seconds
 MOVE_DISPLAY_DURATION = 2  # seconds to show result
 SEQUENCE_HISTORY_LENGTH = 10
 MIN_CONFIDENCE_TO_CLASSIFY = 0.6
+
+# Streak display
+SHOW_STREAK = True
+STREAK_ICONS = {3: '🔥', 5: '⚡', 10: '💀'}
 
 # ============================================================================
 # DATA AUGMENTATION
