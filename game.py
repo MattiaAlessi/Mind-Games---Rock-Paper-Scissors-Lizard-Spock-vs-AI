@@ -1,10 +1,7 @@
 #!/usr/bin/env python3
 """
 RPSLS Game - Advanced Adaptive AI opponent
-- Markov chain of order 2
-- Sliding window, Laplace smoothing, ε‑greedy with decay
-- Persistent memory with async saving
-- UI: pure OpenCV with streak counter and prediction histogram
+UI minimalista: nessun messaggio di disturbo, nessuna cronologia laterale.
 """
 
 import cv2
@@ -21,7 +18,7 @@ from logger import app_logger
 
 
 # ----------------------------------------------------------------------
-# Advanced Adaptive AI (Markov order 2 + window + smoothing + epsilon decay + async save)
+# Adaptive AI (invariata)
 # ----------------------------------------------------------------------
 class AdaptiveAI:
     def __init__(self, n_gestures=5, memory_file="data/ai_memory.npz",
@@ -70,8 +67,6 @@ class AdaptiveAI:
         self._rebuild_from_buffer()
         self.history.append(player_move_idx)
         self.total_rounds += 1
-
-        # Auto-save every 20 rounds (async)
         if self.total_rounds % 20 == 0:
             self.save_memory_async()
 
@@ -86,7 +81,6 @@ class AdaptiveAI:
         return int(np.argmax(probs))
     
     def get_prediction_probabilities(self):
-        """Return probability distribution over next player moves."""
         if len(self.history) < self.order:
             return None
         state = self._get_state_key()
@@ -97,7 +91,6 @@ class AdaptiveAI:
         return probs
 
     def choose_move(self):
-        # epsilon-greedy with decay
         if np.random.rand() < self.epsilon:
             move = np.random.randint(self.n)
         else:
@@ -111,12 +104,10 @@ class AdaptiveAI:
                     move = np.random.randint(self.n)
                 else:
                     move = np.random.choice(winning_moves)
-        # Decay epsilon
         self.epsilon = max(self.epsilon_min, self.epsilon * self.epsilon_decay)
         return move
 
     def save_memory(self):
-        """Synchronous save (used internally by async thread)."""
         with self._save_lock:
             trans_dict = {k: v for k, v in self.transitions.items()}
             data = {
@@ -136,7 +127,6 @@ class AdaptiveAI:
             app_logger.info(f"AI memory saved ({len(self.round_buffer)} rounds)")
 
     def save_memory_async(self):
-        """Save memory in a background thread."""
         thread = threading.Thread(target=self.save_memory, daemon=True)
         thread.start()
 
@@ -167,7 +157,20 @@ class AdaptiveAI:
 
 
 # ----------------------------------------------------------------------
-# Main Game Class
+# Helper: testo con sfondo nero
+# ----------------------------------------------------------------------
+def draw_text_with_bg(frame, text, x, y, font_scale, thickness, text_color, bg_color=(0,0,0), padding=4):
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    (tw, th), baseline = cv2.getTextSize(text, font, font_scale, thickness)
+    cv2.rectangle(frame,
+                  (x - padding, y - th - padding),
+                  (x + tw + padding, y + baseline + padding),
+                  bg_color, -1)
+    cv2.putText(frame, text, (x, y), font, font_scale, text_color, thickness)
+
+
+# ----------------------------------------------------------------------
+# Main Game Class (UI ultra-semplice)
 # ----------------------------------------------------------------------
 class Game:
     def __init__(self):
@@ -179,14 +182,13 @@ class Game:
         self.cap = cv2.VideoCapture(0)
         self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
         self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-        self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # reduce latency
+        self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
-        self.ai = AdaptiveAI()   # with epsilon decay
+        self.ai = AdaptiveAI()
         self.player_score = 0
         self.ai_score = 0
         self.draws = 0
-        self.win_streak = 0          # consecutive wins (4.1)
-        self.round_history = deque(maxlen=8)
+        self.win_streak = 0
         self.current_round_active = False
         self.countdown_start = 0
         self.player_gesture = None
@@ -222,36 +224,15 @@ class Game:
                 return icon
         return ""
 
-    def draw_prediction_histogram(self, frame, probs, x, y, width=200, height=100):
-        """Draw bar chart of AI's predicted next player moves."""
-        if probs is None:
-            return
-        bar_width = width // len(probs)
-        max_prob = np.max(probs)
-        for i, prob in enumerate(probs):
-            bar_height = int((prob / max_prob) * height) if max_prob > 0 else 0
-            color = (0, int(255 * prob), 255)
-            cv2.rectangle(frame,
-                         (x + i * bar_width, y + height - bar_height),
-                         (x + (i+1) * bar_width, y + height),
-                         color, -1)
-            # gesture emoji
-            gesture = Gesture(i)
-            cv2.putText(frame, GESTURE_EMOJIS[gesture],
-                       (x + i * bar_width + 5, y + height + 20),
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255,255,255), 1)
-
     def run(self):
         app_logger.info("Starting Mind Games RPSLS")
         print("\n🎮 RPSLS – Mind Games with Adaptive AI")
         print("   Press SPACE to start a round (after showing a clear gesture)")
         print("   Press ESC to quit\n")
-        print("   AI learns from your last moves, decays exploration over time!\n")
 
-        
         cv2.namedWindow("Mind Games - RPSLS", cv2.WINDOW_NORMAL)
-        cv2.resizeWindow("Mind Games - RPSLS", 960, 720) 
-        
+        cv2.resizeWindow("Mind Games - RPSLS", 960, 720)
+
         while True:
             ret, frame = self.cap.read()
             if not ret:
@@ -259,9 +240,10 @@ class Game:
             frame = cv2.flip(frame, 1)
             h, w = frame.shape[:2]
 
+            # ---------- Hand detection ----------
             _, landmarks, hand_detected = self.hand_detector.detect(frame)
-            smoothed_landmarks = self.hand_detector.get_smoothed_landmarks()
-            landmarks_to_use = smoothed_landmarks if smoothed_landmarks is not None else landmarks
+            smoothed = self.hand_detector.get_smoothed_landmarks()
+            landmarks_to_use = smoothed if smoothed is not None else landmarks
 
             gesture = None
             confidence = 0.0
@@ -271,65 +253,62 @@ class Game:
                     gesture, confidence = self.classifier.predict(features)
                 frame = self.hand_detector.draw_skeleton(frame, landmarks_to_use, (0, 255, 0), 2)
 
-            # ---------- UI overlays ----------
-            cv2.rectangle(frame, (0, 0), (w, 70), (0, 0, 0), -1)
-            cv2.putText(frame, f"YOU: {self.player_score}", (20, 40),
-                        cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
-            cv2.putText(frame, f"AI: {self.ai_score}", (200, 40),
-                        cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
-            cv2.putText(frame, f"DRAWS: {self.draws}", (380, 40),
-                        cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 0), 2)
-            
-            # Streak display (4.1)
-            streak_icon = self.get_streak_icon()
+            # ---------- Barra superiore (punteggi + streak) ----------
+            top_bar_h = 70
+            cv2.rectangle(frame, (0, 0), (w, top_bar_h), (0, 0, 0), -1)
+
+            draw_text_with_bg(frame, f"YOU: {self.player_score}", 15, 45, 1, 2, (0, 255, 0))
+            draw_text_with_bg(frame, f"AI: {self.ai_score}", 150, 45, 1, 2, (0, 0, 255))
+            draw_text_with_bg(frame, f"DRAWS: {self.draws}", 280, 45, 1, 2, (255, 255, 0))
+
             if self.win_streak > 1:
-                cv2.putText(frame, f"STREAK: {self.win_streak} {streak_icon}", (550, 40),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 165, 255), 2)
+                streak_text = f"STREAK: {self.win_streak} {self.get_streak_icon()}"
+                (tw, _), _ = cv2.getTextSize(streak_text, cv2.FONT_HERSHEY_SIMPLEX, 0.9, 2)
+                x_streak = w - tw - 15
+                draw_text_with_bg(frame, streak_text, x_streak, 45, 0.9, 2, (0, 165, 255))
 
-            cv2.putText(frame, "SPACE: play | ESC: quit", (w-300, 40),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200, 200, 200), 1)
-
-            # current gesture feedback
-            if not self.current_round_active and gesture and confidence > 0.6:
-                emoji = GESTURE_EMOJIS[gesture]
-                name = GESTURE_NAMES[gesture]
-                cv2.putText(frame, f"{emoji} {name} ({confidence:.0%})", (20, h-20),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 0), 2)
-            elif not self.current_round_active:
-                cv2.putText(frame, "No gesture", (20, h-20),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.8, (128, 128, 128), 1)
-
-            # AI memory indicator
+            # ---------- Barra inferiore (comandi + stato AI) ----------
+            bottom_bar_h = 60
+            cv2.rectangle(frame, (0, h - bottom_bar_h), (w, h), (0, 0, 0), -1)
+            draw_text_with_bg(frame, "SPACE: play | ESC: quit", 15, h - 25, 0.6, 1, (200, 200, 200))
             if self.ai.total_rounds > 0:
-                cv2.putText(frame, f"AI memory: {self.ai.total_rounds} rounds", (w-250, h-20),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 1)
-                # Show epsilon (optional)
-                cv2.putText(frame, f"ε={self.ai.epsilon:.3f}", (w-250, h-40),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.4, (200,200,200), 1)
+                mem_text = f"Memory: {self.ai.total_rounds} | epsilon={self.ai.epsilon:.3f}"
+                (tw, _), _ = cv2.getTextSize(mem_text, cv2.FONT_HERSHEY_SIMPLEX, 0.55, 1)
+                x_mem = w - tw - 15
+                draw_text_with_bg(frame, mem_text, x_mem, h - 25, 0.55, 1, (0, 255, 255))
 
-            # recent rounds history
-            x_hist = w - 210
-            y_start = 100
-            cv2.putText(frame, "Recent rounds:", (x_hist, y_start),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
-            for i, (p, a, r) in enumerate(self.round_history):
-                color = (0, 255, 0) if r == 'win' else (0, 0, 255) if r == 'lose' else (255, 255, 0)
-                cv2.putText(frame, f"{p} vs {a}", (x_hist, y_start + 25 + i*25),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
+            # ---------- Area centrale: solo gesto riconosciuto (se presente) ----------
+            if not self.current_round_active and gesture and confidence > 0.6:
+                gesture_text = f"{GESTURE_EMOJIS[gesture]} {GESTURE_NAMES[gesture]} ({confidence:.0%})"
+                (tw, th), _ = cv2.getTextSize(gesture_text, cv2.FONT_HERSHEY_SIMPLEX, 0.9, 2)
+                x_center = (w - tw) // 2
+                y_center = (h - top_bar_h - bottom_bar_h) // 2 + top_bar_h
+                draw_text_with_bg(frame, gesture_text, x_center, y_center, 0.9, 2, (255, 255, 0))
 
+            # ---------- Messaggio di attesa (solo quando nessun gesto e non in partita) ----------
+            # Lo mettiamo in basso, poco invadente, solo se serve davvero
+            if not self.current_round_active and time.time() > self.result_display_end:
+                if gesture is None or confidence < 0.6:
+                    wait_text = "Show a clear gesture, then press SPACE"
+                else:
+                    wait_text = "Press SPACE to start the round!"
+                (tw, th), _ = cv2.getTextSize(wait_text, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)
+                x_center = (w - tw) // 2
+                y_center = h - bottom_bar_h - 15
+                draw_text_with_bg(frame, wait_text, x_center, y_center, 0.6, 2, (255, 255, 255))
 
-            # ---------- Game round logic ----------
+            # ---------- Game logic ----------
             key = cv2.waitKey(1) & 0xFF
             if key == 27:
                 break
 
             if key == ord(' ') and not self.current_round_active and time.time() > self.result_display_end:
                 if gesture is None or confidence < 0.6:
-                    cv2.rectangle(frame, (w//2-250, h//2-30), (w//2+250, h//2+30), (0, 0, 0), -1)
-                    cv2.putText(frame, "Show a clear gesture first!", (w//2-230, h//2+10),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
-                    
-                    
+                    warn_msg = "Show a clear gesture first!"
+                    (tw, th), _ = cv2.getTextSize(warn_msg, cv2.FONT_HERSHEY_SIMPLEX, 0.8, 2)
+                    x_center = (w - tw) // 2
+                    y_center = h // 2
+                    draw_text_with_bg(frame, warn_msg, x_center, y_center, 0.8, 2, (0, 0, 255))
                     cv2.imshow("Mind Games - RPSLS", frame)
                     cv2.waitKey(500)
                     continue
@@ -341,38 +320,42 @@ class Game:
                 self.player_gesture = self.frozen_gesture
                 self.ai_gesture = Gesture(self.ai.choose_move())
 
+            # Countdown
             if self.current_round_active:
                 elapsed = time.time() - self.countdown_start
                 if elapsed < 2.0:
                     remaining = int(3 - elapsed * 1.5)
                     remaining = max(1, min(3, remaining))
                     angle = int(360 * (elapsed / 2.0))
-                    center = (w//2, h//2)
-                    radius = 80
-                    cv2.ellipse(frame, center, (radius, radius), 0, 0, angle, (0, 255, 255), 10)
-                    cv2.putText(frame, str(remaining), (center[0]-30, center[1]+30),
-                                cv2.FONT_HERSHEY_SIMPLEX, 3, (0, 255, 255), 4)
-                    cv2.putText(frame, f"{GESTURE_EMOJIS[self.frozen_gesture]} {GESTURE_NAMES[self.frozen_gesture]}",
-                                (center[0]-100, center[1]-50), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
+                    center = (w // 2, h // 2)
+                    radius = 70
+                    overlay = frame.copy()
+                    cv2.circle(overlay, center, radius + 20, (0, 0, 0), -1)
+                    frame = cv2.addWeighted(overlay, 0.7, frame, 0.3, 0)
+                    cv2.ellipse(frame, center, (radius, radius), 0, 0, angle, (0, 255, 255), 8)
+                    count_text = str(remaining)
+                    (tw, th), _ = cv2.getTextSize(count_text, cv2.FONT_HERSHEY_SIMPLEX, 3, 4)
+                    draw_text_with_bg(frame, count_text,
+                                      center[0] - tw//2, center[1] + th//2,
+                                      3, 4, (0, 255, 255))
+                    gesture_text = f"{GESTURE_EMOJIS[self.frozen_gesture]} {GESTURE_NAMES[self.frozen_gesture]}"
+                    (gw, gh), _ = cv2.getTextSize(gesture_text, cv2.FONT_HERSHEY_SIMPLEX, 0.8, 2)
+                    draw_text_with_bg(frame, gesture_text,
+                                      center[0] - gw//2, center[1] - 50,
+                                      0.8, 2, (255, 255, 255))
                 else:
                     result = self.determine_winner(self.player_gesture, self.ai_gesture)
                     self.update_scores(result)
                     self.ai.update(self.player_gesture.value)
-
-                    p_short = GESTURE_NAMES[self.player_gesture][:3]
-                    a_short = GESTURE_NAMES[self.ai_gesture][:3]
-                    self.round_history.appendleft((p_short, a_short, result))
-
                     self.round_result = result
                     self.result_display_end = time.time() + 2.0
                     self.current_round_active = False
 
-            # show result overlay
+            # Risultato
             if time.time() < self.result_display_end and self.round_result:
                 overlay = frame.copy()
-                cv2.rectangle(overlay, (w//2-220, h//2-110), (w//2+220, h//2+110), (0, 0, 0), -1)
-                frame = cv2.addWeighted(overlay, 0.8, frame, 0.2, 0)
-
+                cv2.rectangle(overlay, (w//2 - 200, h//2 - 100), (w//2 + 200, h//2 + 100), (0, 0, 0), -1)
+                frame = cv2.addWeighted(overlay, 0.85, frame, 0.15, 0)
                 if self.round_result == "win":
                     msg = "YOU WIN! 🎉"
                     color = (0, 255, 0)
@@ -382,17 +365,14 @@ class Game:
                 else:
                     msg = "DRAW 🤝"
                     color = (255, 255, 0)
-
-                cv2.putText(frame, msg, (w//2-120, h//2-20),
-                            cv2.FONT_HERSHEY_SIMPLEX, 1.5, color, 3)
-                cv2.putText(frame, f"You: {GESTURE_EMOJIS[self.player_gesture]} {GESTURE_NAMES[self.player_gesture]}",
-                            (w//2-180, h//2+40), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (200, 200, 200), 2)
-                cv2.putText(frame, f"AI : {GESTURE_EMOJIS[self.ai_gesture]} {GESTURE_NAMES[self.ai_gesture]}",
-                            (w//2-180, h//2+80), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (200, 200, 200), 2)
-
-            if not self.current_round_active and time.time() >= self.result_display_end:
-                cv2.putText(frame, "Show a gesture and press SPACE", (w//2-250, h-50),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
+                (mw, mh), _ = cv2.getTextSize(msg, cv2.FONT_HERSHEY_SIMPLEX, 1.4, 3)
+                draw_text_with_bg(frame, msg, w//2 - mw//2, h//2 - 30, 1.4, 3, color)
+                p_text = f"You: {GESTURE_EMOJIS[self.player_gesture]} {GESTURE_NAMES[self.player_gesture]}"
+                a_text = f"AI : {GESTURE_EMOJIS[self.ai_gesture]} {GESTURE_NAMES[self.ai_gesture]}"
+                (pw, ph), _ = cv2.getTextSize(p_text, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2)
+                draw_text_with_bg(frame, p_text, w//2 - pw//2, h//2 + 35, 0.7, 2, (200, 200, 200))
+                (aw, ah), _ = cv2.getTextSize(a_text, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2)
+                draw_text_with_bg(frame, a_text, w//2 - aw//2, h//2 + 75, 0.7, 2, (200, 200, 200))
 
             cv2.imshow("Mind Games - RPSLS", frame)
 
