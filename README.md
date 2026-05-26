@@ -160,36 +160,9 @@ SCREEN_WIDTH = 1920
 SCREEN_HEIGHT = 1080
 ```
 
-### Regolare difficoltà IA
-```python
-ai.set_strategy('random')      # Più semplice
-ai.set_strategy('balanced')    # Intermedio
-ai.set_strategy('counter')     # Hardest
-```
-
-## 📚 Documentazione Codice
-
-Ogni modulo ha docstring dettagliati:
-```bash
-python -c "import hand_detector; help(hand_detector.HandDetector.detect)"
-```
-
-## 🚀 Deployment Future
-
-- [ ] Salva replay delle partite in video
-- [ ] Dashboard live con grafico accuratezza IA
-- [ ] Multiplayer online
-- [ ] Modelli più avanzati (Transformer, Vision Transformer)
-- [ ] Android/iOS app con TensorFlow Lite
-
-## 📄 Licenza
 
 MIT License - Libero per uso educativo e commerciale.
 
 ## 👨‍💻 Autore
 
-Progetto per esame universitario - Computer Vision & Machine Learning.
-
----
-
-**Buona fortuna a impressionare il professore! 🎓**
+Alessi Mattia - Velli Vinicio
